@@ -3,32 +3,48 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useMemo, useRef, ChangeEvent, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Plus, Upload, X, Info, Quote, Menu, ChevronLeft } from 'lucide-react';
-import { initialSlangs } from './data/initialSlangs';
+import { Search, X, Menu, ChevronLeft, RefreshCw } from 'lucide-react';
 import { Slang } from './types';
 import SlangDetail from './components/SlangCard';
 import Skeleton from './components/Skeleton';
+import { fetchSlangs } from './lib/supabase';
 
 export default function App() {
-  const [slangs, setSlangs] = useState<Slang[]>(initialSlangs);
+  const [slangs, setSlangs] = useState<Slang[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSlangId, setSelectedSlangId] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Simulate initial data loading
-    const timer = setTimeout(() => {
+  const loadData = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await fetchSlangs();
+      if (data.length > 0) {
+        setSlangs(data);
+        // Default selection
+        const aura = data.find(s => s.term.toLowerCase() === 'aura');
+        setSelectedSlangId(aura?.id || data[0].id);
+      } else {
+        setError('The database is empty. No slangs to decode.');
+      }
+    } catch (err) {
+      console.error(err);
+      setError('Failed to sync with the matrix.');
+    } finally {
       setIsLoading(false);
-      setSelectedSlangId(initialSlangs.find(s => s.id === 'aura')?.id || initialSlangs[0]?.id || null);
-    }, 1500);
-    return () => clearTimeout(timer);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
   }, []);
-  const [isImporting, setIsImporting] = useState(false);
+
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const filteredSlangs = useMemo(() => {
     const query = searchQuery.toLowerCase();
@@ -70,42 +86,6 @@ export default function App() {
 
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
-  const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target?.result as string;
-      if (!text) return;
-
-      const lines = text.split('\n');
-      const newSlangs = lines.slice(1).map((line, index): Slang | null => {
-        // More robust CSV splitting handling basic quotes
-        const parts = (line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || [])
-          .map(s => s.trim().replace(/^"|"$/g, ''));
-        
-        const [term, meaning, translation, example, category] = parts;
-        if (!term) return null;
-        return {
-          id: `imported-${Date.now()}-${index}`,
-          term: term || 'Unknown',
-          meaning: meaning || 'No definition provided',
-          millennialTranslation: translation || 'No translation provided',
-          example: example || 'No example provided',
-          category: category || 'General'
-        };
-      }).filter((s): s is Slang => s !== null);
-
-      if (newSlangs.length > 0) {
-        setSlangs(prev => [...newSlangs, ...prev]);
-        setIsImporting(false);
-        setSelectedSlangId(newSlangs[0].id);
-      }
-    };
-    reader.readAsText(file);
-  };
-
   return (
     <div className="flex h-screen w-full overflow-hidden bg-black text-white font-sans selection:bg-white selection:text-black border border-brand-border">
       {/* Mobile Menu Overlay */}
@@ -127,7 +107,14 @@ export default function App() {
           <span className="text-black font-black text-lg italic leading-none">Z</span>
         </div>
         
-        <div className="flex-1 flex flex-col gap-1 overflow-y-auto w-full px-1 opacity-30 hover:opacity-100 transition-opacity custom-scrollbar no-scrollbar pb-10 scroll-smooth">
+        <div className="flex-1 overflow-y-auto w-full px-1 opacity-30 hover:opacity-100 transition-opacity custom-scrollbar no-scrollbar pb-10 scroll-smooth">
+          <button 
+            onClick={loadData}
+            className="w-full py-2 hover:bg-brand-accent rounded mb-2 transition-colors flex items-center justify-center text-white/50 hover:text-white"
+            title="Refresh Data"
+          >
+            <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} />
+          </button>
           {alphabet.map(letter => (
             <button 
               key={letter}
@@ -155,13 +142,6 @@ export default function App() {
           ))}
         </div>
 
-        <button 
-          onClick={() => setIsImporting(true)}
-          className="mt-auto p-2 lg:p-3 text-white/40 hover:text-white transition-colors"
-          title="Import CSV"
-        >
-          <Plus className="w-4 h-4 lg:w-5 lg:h-5" />
-        </button>
       </aside>
 
       {/* Column 2: List View (Conditionally visible on mobile) */}
@@ -335,6 +315,27 @@ export default function App() {
                 <Skeleton width="100%" height="8rem" />
               </div>
             </motion.div>
+          ) : error ? (
+            <motion.div
+              key="error-state"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="flex-1 flex flex-col items-center justify-center text-center p-12 space-y-6"
+            >
+              <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center text-red-500 mb-4 border border-red-500/20">
+                <X size={32} />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-xl font-bold italic uppercase tracking-tighter text-red-400">Sync Failure</h3>
+                <p className="text-white/40 text-sm max-w-xs mx-auto leading-relaxed">{error}</p>
+              </div>
+              <button 
+                onClick={loadData}
+                className="px-6 py-2 bg-white text-black text-[10px] font-black uppercase tracking-widest rounded-full hover:bg-brand-accent hover:text-white transition-all transform active:scale-95"
+              >
+                Retry Link
+              </button>
+            </motion.div>
           ) : selectedSlang ? (
             <motion.div
               key={selectedSlang.id}
@@ -367,10 +368,11 @@ export default function App() {
                      onClick={() => {
                        const idx = slangs.findIndex(s => s.id === selectedSlangId);
                        const prev = slangs[idx - 1] || slangs[slangs.length - 1];
-                       setSelectedSlangId(prev.id);
+                       if (prev) setSelectedSlangId(prev.id);
                      }}
                      aria-label="Previous Slang"
-                     className="w-12 h-12 border border-brand-accent rounded-full flex items-center justify-center hover:bg-white hover:text-black transition-all active:scale-95"
+                     className="w-12 h-12 border border-brand-accent rounded-full flex items-center justify-center hover:bg-white hover:text-black transition-all active:scale-95 disabled:opacity-20"
+                     disabled={slangs.length <= 1}
                    >
                      ←
                    </button>
@@ -378,10 +380,11 @@ export default function App() {
                      onClick={() => {
                         const idx = slangs.findIndex(s => s.id === selectedSlangId);
                         const next = slangs[idx + 1] || slangs[0];
-                        setSelectedSlangId(next.id);
+                        if (next) setSelectedSlangId(next.id);
                      }}
                      aria-label="Next Slang"
-                     className="w-12 h-12 border border-brand-accent rounded-full flex items-center justify-center hover:bg-white hover:text-black transition-all active:scale-95"
+                     className="w-12 h-12 border border-brand-accent rounded-full flex items-center justify-center hover:bg-white hover:text-black transition-all active:scale-95 disabled:opacity-20"
+                     disabled={slangs.length <= 1}
                    >
                      →
                    </button>
@@ -391,82 +394,14 @@ export default function App() {
           ) : (
             <div className="h-full flex items-center justify-center p-20 text-center">
               <div className="space-y-4 max-w-sm">
-                <div className="text-4xl">🔌</div>
-                <h2 className="text-2xl font-bold uppercase italic">Connection Lost</h2>
-                <p className="text-white/40 text-sm">Select a slang from the directory to start decoding the abyss.</p>
+                <div className="text-4xl opacity-50">🔌</div>
+                <h2 className="text-2xl font-bold uppercase italic text-white/60">Connection Lost</h2>
+                <p className="text-white/30 text-xs">The abyss is silent. Select a transmission or verify the uplink.</p>
               </div>
             </div>
           )}
         </AnimatePresence>
       </main>
-
-      {/* Import Modal */}
-      <AnimatePresence>
-        {isImporting && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center px-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsImporting(false)}
-              className="absolute inset-0 bg-black/90 backdrop-blur-xl"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-lg bg-brand-gray border border-brand-border rounded-3xl p-10 shadow-2xl"
-            >
-              <button 
-                onClick={() => setIsImporting(false)}
-                className="absolute top-8 right-8 p-2 hover:bg-white/10 rounded-full transition-colors"
-              >
-                <X size={20} />
-              </button>
-
-              <div className="space-y-8">
-                <div className="space-y-3">
-                  <div className="w-12 h-12 bg-white text-black rounded-xl flex items-center justify-center mb-6">
-                    <Upload size={24} />
-                  </div>
-                  <h3 className="text-4xl font-black italic uppercase tracking-tighter">Bulk Import</h3>
-                  <p className="text-white/40 text-sm leading-relaxed">Expand the directory with your own dataset. Follow the protocol below for successful extraction.</p>
-                </div>
-
-                <div className="bg-black/50 p-5 rounded-2xl border border-brand-accent space-y-4">
-                  <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-white/30">
-                    <Info size={12} />
-                    <span>Protocol schema</span>
-                  </div>
-                  <code className="block text-[11px] text-white/70 overflow-x-auto whitespace-nowrap bg-brand-gray p-3 rounded-lg border border-white/5">
-                    term, meaning, millennialTranslation, example, category
-                  </code>
-                </div>
-
-                <div 
-                  onClick={() => fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-brand-accent rounded-2xl p-12 text-center space-y-4 hover:border-white/20 hover:bg-white/[0.02] transition-all cursor-pointer group"
-                >
-                  <div className="mx-auto w-16 h-16 bg-white/5 rounded-full flex items-center justify-center group-hover:scale-110 group-hover:bg-white group-hover:text-black transition-all">
-                    <Upload size={32} />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="font-bold uppercase tracking-[0.2em] text-[10px]">Initialize Upload</p>
-                    <p className="text-[10px] text-white/30 uppercase font-mono">Format: .csv</p>
-                  </div>
-                  <input 
-                    type="file" 
-                    accept=".csv" 
-                    onChange={handleFileUpload}
-                    className="hidden" 
-                    ref={fileInputRef}
-                  />
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
