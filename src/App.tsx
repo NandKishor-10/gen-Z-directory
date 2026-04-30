@@ -107,39 +107,60 @@ export default function App() {
           <span className="text-black font-black text-lg italic leading-none">Z</span>
         </div>
         
-        <div className="flex-1 overflow-y-auto w-full px-1 opacity-30 hover:opacity-100 transition-opacity custom-scrollbar no-scrollbar pb-10 scroll-smooth">
+        <div className="flex-1 overflow-y-auto w-full px-1 opacity-50 hover:opacity-100 transition-opacity custom-scrollbar no-scrollbar pb-10 scroll-smooth">
           <button 
             onClick={loadData}
-            className="w-full py-2 hover:bg-brand-accent rounded mb-2 transition-colors flex items-center justify-center text-white/50 hover:text-white"
+            className="w-full py-3 hover:bg-brand-accent rounded mb-4 transition-colors flex items-center justify-center text-white/50 hover:text-white"
             title="Refresh Data"
           >
-            <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
           </button>
-          {alphabet.map(letter => (
-            <button 
-              key={letter}
-              onClick={() => {
-                const firstWithLetter = slangs.find(s => s.term.toUpperCase().startsWith(letter));
-                if (firstWithLetter) {
-                  setSelectedSlangId(firstWithLetter.id);
-                  setSearchQuery('');
-                  
-                  // Scroll the list to the selected item
-                  setTimeout(() => {
-                    document.getElementById(`slang-${firstWithLetter.id}`)?.scrollIntoView({ 
-                      behavior: 'smooth', 
-                      block: 'center' 
-                    });
-                  }, 50);
+          
+          <div className="flex flex-col gap-0.5">
+            {alphabet.map(letter => {
+              const hasSlangs = slangs.some(s => s.term.toUpperCase().startsWith(letter));
+              const isActive = selectedSlang?.term.toUpperCase().startsWith(letter);
 
-                  if (window.innerWidth < 1024) setIsSidebarOpen(false);
-                }
-              }}
-              className="text-[9px] lg:text-[10px] font-bold text-center py-1 lg:py-2 hover:bg-brand-accent rounded transition-colors"
-            >
-              {letter}
-            </button>
-          ))}
+              return (
+                <button 
+                  key={letter}
+                  disabled={!hasSlangs || isLoading}
+                  onClick={() => {
+                    const firstWithLetter = slangs.find(s => s.term.toUpperCase().startsWith(letter));
+                    if (firstWithLetter) {
+                      setSelectedSlangId(firstWithLetter.id);
+                      setSearchQuery('');
+                      
+                      // Scroll the list to the selected item
+                      setTimeout(() => {
+                        const element = document.getElementById(`slang-${firstWithLetter.id}`);
+                        if (element) {
+                          element.scrollIntoView({ 
+                            behavior: 'smooth', 
+                            block: 'center' 
+                          });
+                        }
+                      }, 100);
+
+                      if (window.innerWidth < 1024) setIsSidebarOpen(false);
+                    }
+                  }}
+                  className={`text-[10px] lg:text-[11px] font-black text-center py-1.5 lg:py-2 rounded transition-all flex items-center justify-center relative group
+                    ${!hasSlangs ? 'opacity-10 text-white/20 cursor-not-allowed' : 'opacity-100 text-white/60 hover:text-white hover:bg-white/10 cursor-pointer'}
+                    ${isActive && hasSlangs ? 'text-brand-accent scale-125 !opacity-100' : ''}
+                  `}
+                >
+                  {letter}
+                  {isActive && hasSlangs && (
+                    <motion.div 
+                      layoutId="active-letter"
+                      className="absolute left-0 w-0.5 h-3 bg-brand-accent rounded-full"
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
       </aside>
